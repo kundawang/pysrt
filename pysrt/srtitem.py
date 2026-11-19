@@ -7,6 +7,7 @@ from pysrt.srtexc import InvalidItem, InvalidIndex
 from pysrt.srttime import SubRipTime
 from pysrt.comparablemixin import ComparableMixin
 from pysrt.compat import str, is_py2
+from pysrt.srtstyledtext import SubRipText
 import re
 
 
@@ -31,7 +32,31 @@ class SubRipItem(ComparableMixin):
         self.start = SubRipTime.coerce(start or 0)
         self.end = SubRipTime.coerce(end or 0)
         self.position = str(position)
-        self.text = str(text)
+        self._text = str(text)
+        self._styled_text = None
+
+    @property
+    def text(self):
+        return self._text
+
+    @text.setter
+    def text(self, value):
+        self._text = str(value)
+        # The styled view is derived from the raw text, it is now stale.
+        self._styled_text = None
+
+    @property
+    def styled_text(self):
+        """
+        A lazily built :class:`pysrt.srtstyledtext.SubRipText` view of
+        :attr:`text`, exposing ordered style fragments, plain text, style
+        ranges and raw positions. Fragments can be edited; call
+        ``item.text = item.styled_text.to_string()`` to write the result
+        back. The view is rebuilt whenever :attr:`text` is reassigned.
+        """
+        if self._styled_text is None:
+            self._styled_text = SubRipText(self._text)
+        return self._styled_text
 
     @property
     def duration(self):

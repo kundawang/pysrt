@@ -93,5 +93,37 @@ Slicing: ::
     >>> part.shift(seconds=-2)
     
 Saving changes: ::
-    
+
     >>> subs.save('other/path.srt', encoding='utf-8')
+
+Inline styles (i, b, u, font)
+=============================
+
+Cue text can contain inline tags such as ``<i>``, ``<b>``, ``<u>`` and
+``<font color="#ff0000">``. The ``styled_text`` property exposes them as an
+ordered list of fragments: each fragment holds its plain text, the nested
+``Style`` stack (outermost first) and its position in the raw cue text. ::
+
+    >>> item = SubRipItem(1, text='<i>Alice:</i> <font color="#ff0000">Hi</font>')
+    >>> styled = item.styled_text
+    >>> styled.plain_text
+    'Alice: Hi'
+    >>> fragment = styled.fragments[0]
+    >>> fragment.text, fragment.styles
+    ('Alice:', (Style('i', {}, valid=True),))
+    >>> styled.style_ranges  # (plain_start, plain_end, styles) tuples
+    [(0, 6, (Style('i', {}, valid=True),)), (6, 7, ()), ...]
+
+Fragments are editable. Write the result back through ``to_string()``;
+untouched text is always serialized byte for byte identical to the original. ::
+
+    >>> fragment.text = 'Bob:'
+    >>> item.text = item.styled_text.to_string()
+    >>> item.text
+    '<i>Bob:</i> <font color="#ff0000">Hi</font>'
+
+Malformed markup (cross closing, stray or unclosed tags, unknown tags, bad
+font colors) is preserved verbatim and listed in ``styled_text.errors``.
+Pass ``strict=True`` to ``SubRipText`` to raise ``InvalidMarkup`` instead.
+The legacy ``item.text`` and ``item.text_without_tags`` APIs keep working
+unchanged.
