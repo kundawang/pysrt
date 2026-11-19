@@ -13,6 +13,8 @@ from copy import copy
 
 from pysrt.srtexc import Error
 from pysrt.srtitem import SubRipItem
+from pysrt.srttime import SubRipTime
+from pysrt.smpte import FrameRate
 from pysrt.compat import str
 
 BOMS = ((codecs.BOM_UTF32_LE, 'utf_32_le'),
@@ -139,6 +141,56 @@ class SubRipFile(UserList, object):
     @property
     def text(self):
         return '\n'.join(i.text for i in self)
+
+    def to_timecodes(self, frame_rate, wrap=False):
+        """
+        to_timecodes(frame_rate[, wrap]) -> list of (start, end) tuples
+
+        Export every item's start and end as SMPTE timecode strings, in
+        file order. Each tuple is ``(start_timecode, end_timecode)``.
+
+        Rounding follows SubRipTime.to_timecode: nearest frame, ties to the
+        later frame. Times at or after 24 hours raise InvalidTimecode
+        unless `wrap` is true.
+
+        The result is plain data; use from_timecodes to import it back.
+        """
+        frame_rate = FrameRate.coerce(frame_rate)
+        return [(item.start.to_timecode(frame_rate, wrap=wrap),
+                 item.end.to_timecode(frame_rate, wrap=wrap))
+                for item in self]
+
+    def from_timecodes(self, timecodes, frame_rate, clean_indexes=False):
+        """
+        from_timecodes(timecodes, frame_rate[, clean_indexes]) -> \
+SubRipFile clone
+
+        Replace each item's start and end with the times parsed from
+        `timecodes`, a sequence of ``(start_timecode, end_timecode)``
+        tuples in the same order and of the same length as this file.
+
+        Text, position and index are preserved. Returns this file (not a
+        copy). With `clean_indexes` true, indexes are renumbered 1..n.
+
+        raise InvalidTimecode on malformed codes or a length mismatch
+        raise DroppedFrameCode on drop-frame codes naming skipped frames
+        """
+        frame_rate = FrameRate.coerce(frame_rate)
+        timecodes = list(timecodes)
+        if len(timecodes) != len(self):
+            raise Error('Expected %d timecode pairs, got %d'
+                        % (len(self), len(timecodes)))
+        parsed = []
+        for start, end in timecodes:
+            parsed.append((
+                SubRipTime.from_timecode(start, frame_rate),
+                SubRipTime.from_timecode(end, frame_rate)))
+        for item, (start, end) in zip(self, parsed):
+            item.start = start
+            item.end = end
+        if clean_indexes:
+            self.clean_indexes()
+        return self
 
     @classmethod
     def open(cls, path='', encoding=None, error_handling=ERROR_PASS):

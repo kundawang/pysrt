@@ -95,3 +95,70 @@ Slicing: ::
 Saving changes: ::
     
     >>> subs.save('other/path.srt', encoding='utf-8')
+
+SMPTE timecodes
+===============
+
+Subtitles can be exchanged with editors and NLEs as SMPTE timecodes.
+``SubRipTime`` converts to and from ``HH:MM:SS:FF`` (non drop-frame) and
+``HH:MM:SS;FF`` (drop-frame). Supported rates are 24, 25, 30 and 30000/1001
+(29.97). ::
+
+    >>> from pysrt import SubRipTime
+    >>> SubRipTime(1, 0, 0, 0).to_timecode(25)
+    '01:00:00:00'
+    >>> SubRipTime(1, 0, 0, 0).to_timecode('30000/1001')
+    '01:00:00;00'
+    >>> SubRipTime.from_timecode('01:00:00:00', 25)
+    SubRipTime(1, 0, 0, 0)
+
+A :class:`pysrt.FrameRate` can be passed instead of a raw rate; it carries
+the drop-frame flag and the matching separator. Rates may be given as
+``24``, ``25``, ``30``, ``30000/1001``, ``29.97`` or a ``Fraction``. ::
+
+    >>> from pysrt import FrameRate
+    >>> FrameRate('30000/1001').timecode_separator
+    ';'
+
+Whole files export and import as ``(start, end)`` timecode pairs, keeping
+file order and frame-accurate durations: ::
+
+    >>> exported = subs.to_timecodes(25)
+    >>> exported[0]
+    ('01:00:00:00', '01:00:02:00')
+    >>> subs.from_timecodes(exported, 25)  # updates subs in place
+
+Frame conversion rules, stated explicitly:
+
+* **Rounding to a frame.** ``SubRipTime`` values are rounded to the nearest
+  frame; an exact half-frame gap rounds to the later frame. Millisecond
+  values that do not land on a frame are snapped to the closest frame, never
+  truncated or rejected.
+* **Rounding to a millisecond.** Reading a timecode rounds to the nearest
+  millisecond, ties upwards. SubRip itself only stores milliseconds, so a
+  timecode finer than that cannot be represented exactly, but re-exporting
+  the stored value reproduces the original timecode.
+* **Invalid frames.** A frame field greater than or equal to the rate
+  (``00:00:00:24`` at 24 fps, ``00:00:00:30`` at 30) raises
+  ``InvalidTimecode``, as do out of range minutes/seconds and hours >= 24.
+* **Skipped drop-frame codes.** ``HH:MM:00;00`` and ``HH:MM:00;01`` for
+  minutes that are not multiples of ten do not exist in drop-frame counting;
+  they raise ``DroppedFrameCode`` (a subclass of ``InvalidTimecode``).
+* **Separators must match.** ``:`` before frames means non drop-frame and
+  ``;`` means drop-frame; mixing them raises ``InvalidTimecode``.
+* **Negative times.** SRT can hold negative offsets internally but they have
+  no timecode; converting one raises ``InvalidTimecode``. ``str()`` on a
+  negative ``SubRipTime`` still clamps to zero as before.
+* **24 hour wrap.** Timecodes are 24 hour cyclic. ``to_timecode`` raises
+  ``InvalidTimecode`` at or beyond 24 hours rather than wrapping silently;
+  pass ``wrap=True`` to take the time modulo 24 hours (``24:00:00,000``
+  becomes ``00:00:00:00`` at every rate, drop-frame included).
+  ``SubRipFile.to_timecodes(rate, wrap=True)`` applies the same rule to a
+  whole file.
+* **Frame rates.** Non finite (``nan``/``inf``) or unsupported rates raise
+  ``InvalidFrameRate``, a ``ValueError`` subclass. ``InvalidTimecode`` is a
+  subclass of the existing ``InvalidTimeString``.
+
+Drop-frame timecodes count at 30000/1001 fps, so an exact timecode such as
+``01:00:00;00`` is a touch less than one hour of wall time (3599996 ms). That
+drift is inherent to 29.97 and is preserved by the conversion.

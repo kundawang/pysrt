@@ -1,12 +1,17 @@
 from pysrt.srttime import SubRipTime
 from pysrt.srtitem import SubRipItem
 from pysrt.srtfile import SubRipFile
-from pysrt.srtexc import Error, InvalidItem, InvalidTimeString
+from pysrt.smpte import FrameRate
+from pysrt.srtexc import (
+    Error, InvalidItem, InvalidTimeString, InvalidTimecode,
+    DroppedFrameCode, InvalidFrameRate
+)
 from pysrt.version import VERSION, VERSION_STRING
 
 __all__ = [
     'SubRipFile', 'SubRipItem', 'SubRipFile', 'SUPPORT_UTF_32_LE',
-    'SUPPORT_UTF_32_BE', 'InvalidItem', 'InvalidTimeString'
+    'SUPPORT_UTF_32_BE', 'InvalidItem', 'InvalidTimeString',
+    'FrameRate', 'InvalidTimecode', 'DroppedFrameCode', 'InvalidFrameRate',
 ]
 
 ERROR_PASS = SubRipFile.ERROR_PASS

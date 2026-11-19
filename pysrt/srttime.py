@@ -5,9 +5,10 @@ SubRip's time format parser: HH:MM:SS,mmm
 import re
 from datetime import time
 
-from pysrt.srtexc import InvalidTimeString
+from pysrt.srtexc import InvalidTimeString, InvalidTimecode
 from pysrt.comparablemixin import ComparableMixin
 from pysrt.compat import str, basestring
+from pysrt.smpte import FrameRate, SECONDS_PER_DAY
 
 
 class TimeItemDescriptor(object):
@@ -175,3 +176,91 @@ class SubRipTime(ComparableMixin):
         """
         return time(self.hours, self.minutes, self.seconds,
                     self.milliseconds * 1000)
+
+    # -- SMPTE timecode (HH:MM:SS:FF / HH:MM:SS;FF) -----------------------
+
+    def to_frame_number(self, frame_rate):
+        """
+        to_frame_number(frame_rate) -> int
+
+        Frame number at the given frame rate, rounded to the nearest frame.
+        A time exactly halfway between two frames selects the later frame.
+
+        `frame_rate` may be a FrameRate, 24, 25, 30, 30000/1001, 29.97 or
+        any equivalent Fraction/string.
+        raise InvalidTimecode on negative times
+        raise InvalidFrameRate on unsupported rates
+        """
+        return FrameRate.coerce(frame_rate).ordinal_to_frames(self.ordinal)
+
+    @classmethod
+    def from_frame_number(cls, frame_number, frame_rate):
+        """
+        from_frame_number(frame_number, frame_rate) -> SubRipTime
+
+        SubRipTime for the given frame number, rounded to the nearest
+        millisecond (ties upwards). Frame numbers do not wrap; numbers
+        beyond 24 hours are accepted since SubRipTime has no 24 hour limit.
+        raise InvalidTimecode on negative frame numbers
+        raise InvalidFrameRate on unsupported rates
+        """
+        frame_rate = FrameRate.coerce(frame_rate)
+        if isinstance(frame_number, bool):
+            raise InvalidTimecode(
+                'Frame number must be an integer, got %r' % (frame_number, ))
+        try:
+            is_integer = int(frame_number) == frame_number
+        except (TypeError, ValueError, OverflowError):
+            is_integer = False
+        if not is_integer:
+            raise InvalidTimecode(
+                'Frame number must be an integer, got %r' % (frame_number, ))
+        return cls.from_ordinal(frame_rate.frames_to_ordinal(int(frame_number)))
+
+    def to_timecode(self, frame_rate, wrap=False):
+        """
+        to_timecode(frame_rate[, wrap]) -> str
+
+        SMPTE timecode for this time. Drop-frame rates use ``;`` before the
+        frames field, other rates use ``:``.
+
+        A time at or after 24 hours raises InvalidTimecode unless
+        `wrap` is true, in which case the time of day is taken modulo 24
+        hours of wall-clock time (24:00:00,000 -> 00:00:00:00 at every
+        rate, drop-frame included).
+        raise InvalidTimecode on negative times
+        raise InvalidFrameRate on unsupported rates
+        """
+        frame_rate = FrameRate.coerce(frame_rate)
+        if self.ordinal < 0:
+            raise InvalidTimecode(
+                'Negative time (%d ms) has no SMPTE representation'
+                % self.ordinal)
+        ordinal = self.ordinal
+        if wrap:
+            ordinal %= SECONDS_PER_DAY * 1000
+        frame_number = frame_rate.ordinal_to_frames(ordinal)
+        if wrap and frame_number >= frame_rate.frames_per_24_hours:
+            # At drop-frame rates the last fraction of a second rounds
+            # past the end of the 24 hour timecode day (a 29.97 timecode
+            # day is a few frames shorter than 24 hours of wall time).
+            # Clamp so a wrapped time inside the day never raises.
+            frame_number = frame_rate.frames_per_24_hours - 1
+        return frame_rate.frames_to_timecode(frame_number)
+
+    @classmethod
+    def from_timecode(cls, timecode, frame_rate):
+        """
+        from_timecode(timecode, frame_rate) -> SubRipTime
+
+        Parse ``HH:MM:SS:FF`` (or ``HH:MM:SS;FF`` for drop-frame) at the
+        given frame rate and round to the nearest millisecond.
+
+        raise InvalidTimecode on malformed codes, out of range fields,
+            a separator mismatching the rate and negative times
+        raise DroppedFrameCode when a drop-frame code names a skipped frame
+        raise InvalidFrameRate on unsupported rates
+        """
+        frame_rate = FrameRate.coerce(frame_rate)
+        return cls.from_frame_number(
+            frame_rate.timecode_to_frames(timecode), frame_rate)
